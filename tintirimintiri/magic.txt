@@ -1,0 +1,5 @@
+gcc -nostdlib -static -L/home/serj/_o/netstock/dietlibc/bin-x86_64 -fno-stack-protector -fPIC -fPIE -pie  tintiri.c -isystem /home/serj/_o/netstock/dietlibc/include -D__dietlibc__ /home/serj/_o/netstock/dietlibc/bin-x86_64/dietlibc.a  -Wl,-verbose -Wl,-Tmy_link.ld 
+
+
+gcc -shared -pie -fPIC -fno-stack-protector tintiri.c -c
+ld -pie  -nostdlib  tintiri.o -L/home/serj/_o/netstock/dietlibc/bin-x86_64  /home/serj/_o/netstock/dietlibc/bin-x86_64/dietlibc.a -T my_link.ld  -o a.out

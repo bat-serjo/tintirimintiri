@@ -11,8 +11,9 @@ def random_string(length=8) -> str:
 
 
 class TM:
-    def __init__(self, fname):
+    def __init__(self, fname, tm_file):
         self._bin = ELF.parse(fname)
+        self._tm = ELF.parse(tm_file)
 
     def copySection(self, name: str = ".text"):
         orig = self._bin.get_section(name)
@@ -29,14 +30,24 @@ class TM:
 
         self._bin.add(new_section, loaded=True)
 
-        orig.content = [0x90 for i in range(orig.size)]
+        # orig.content = [0xf4 for i in range(orig.size)]
+
+        _tm_entry = self._tm.entrypoint
+        _tm_segment = self._tm.get(ELF.SEGMENT_TYPES.LOAD)
+
+        _tm_offset = _tm_entry - _tm_segment.virtual_address
+
+        new_tm_segment = self._bin.add(_tm_segment)
+        new_tm_entry = new_tm_segment.virtual_address + _tm_offset
+
+        self._bin.header.entrypoint = new_tm_entry
 
     def store(self):
         self._bin.write(self._bin.name+"_MODED")
 
 
 if __name__ == "__main__":
-    o = TM(sys.argv[1])
+    o = TM(sys.argv[1], sys.argv[2])
     o.copySection()
     o.store()
 

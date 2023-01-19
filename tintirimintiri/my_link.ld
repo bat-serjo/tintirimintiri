@@ -10,7 +10,7 @@ PHDRS {
 
 SECTIONS
 {
-  PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x13370000)); . = SEGMENT_START("text-segment", 0x13370000) + SIZEOF_HEADERS;
+  PROVIDE (__executable_start = SEGMENT_START("text-segment", 0)); . = SEGMENT_START("text-segment", 0) + SIZEOF_HEADERS;
   . = ALIGN(CONSTANT (MAXPAGESIZE));
   .wtf           :
   {
