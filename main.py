@@ -2,6 +2,8 @@
 import os
 import sys
 import string
+import shutil
+import subprocess
 
 from lief import ELF
 
@@ -11,9 +13,28 @@ def random_string(length=8) -> str:
 
 
 class TM:
-    def __init__(self, fname, tm_file):
+    def __init__(self, fname):
         self._bin = ELF.parse(fname)
-        self._tm = ELF.parse(tm_file)
+        self._moded = self._bin.name+"_MODED"
+        self._tm = None
+
+    def _build_loader(self, entry: int, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
+        oldd = os.getcwd()
+        os.chdir("tintirimintiri")
+
+        p = subprocess.Popen(["gcc", "-pie", "-fPIC", "-fcf-protection=none", "-fno-stack-protector", "tintiri.c", "-c",
+                              f"-DENTRY={entry}"])
+        p.wait()
+
+        p = subprocess.Popen(["ld", "-pie",  "-nostdlib",  "tintiri.o",
+                              f"-L{dietpath}bin-x86_64",
+                              f"{dietpath}/bin-x86_64/dietlibc.a",
+                              "-T", "my_link.ld",  "-o", "a.out"])
+        p.wait()
+        out = os.path.abspath("a.out")
+        os.chdir(oldd)
+
+        self._tm = ELF.parse(out)
 
     def copySection(self, name: str = ".text"):
         orig = self._bin.get_section(name)
@@ -42,14 +63,21 @@ class TM:
 
         self._bin.header.entrypoint = new_tm_entry
 
+    def patch(self):
+        self._build_loader(0xb70)
+        self.copySection()
+        if os.path.exists(self._moded):
+            os.unlink(self._moded)
+        self.store()
+        os.chmod(self._moded, 755)
+
     def store(self):
-        self._bin.write(self._bin.name+"_MODED")
+        self._bin.write(self._moded)
 
 
 if __name__ == "__main__":
-    o = TM(sys.argv[1], sys.argv[2])
-    o.copySection()
-    o.store()
+    o = TM(sys.argv[1])
+    o.patch()
 
 # binary = ELF.parse(sys.argv[1])
 #

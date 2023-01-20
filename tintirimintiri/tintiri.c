@@ -181,7 +181,7 @@ void _handle_SEGV(int signum, siginfo_t *info ,void *context)
 //    printf("REG_RIP: %llx\n", c->uc_mcontext.gregs[REG_RIP]);
     uint8_t *p = (uint8_t*)c->uc_mcontext.gregs[REG_RIP];
     mprotect((void*)PAGE_ALIGN(p), PAGE_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC);
-    *p = 0x90;
+//    *p = 0x90;
 //    printf("\n");
 }
 
@@ -225,7 +225,7 @@ int init_signals (void)
 #define ENTRY 0
 #endif
 
-void _start() {
+uint64_t logic()  {
 //int main() {
     pmaps_t pms = read_maps(getpid());
     
@@ -244,8 +244,53 @@ void _start() {
     }
     
     uint64_t a = (uint64_t)va + ENTRY;
-    ((void(*)())a)();
-    
-    asm(".byte 0xf4");
+    return a;
+//    ((void(*)())a)();
+//    
+//    asm(".byte 0xf4");
 //    exit(0);
+}
+
+
+__attribute__ ( ( naked ) ) void _start()  {
+    asm("pushq %rax "); 
+    asm("pushq %rbx "); 
+    asm("pushq %rcx "); 
+    asm("pushq %rdx "); 
+    asm("pushq %rsp "); 
+    asm("pushq %rbp "); 
+    asm("pushq %rsi "); 
+    asm("pushq %rdi "); 
+    asm("pushq %r8  "); 
+    asm("pushq %r9  "); 
+    asm("pushq %r10 "); 
+    asm("pushq %r11 "); 
+    asm("pushq %r12 "); 
+    asm("pushq %r13 "); 
+    asm("pushq %r14 "); 
+    asm("pushq %r15 ");  
+
+    logic();
+    
+    asm("popq %r15 "); 
+    asm("popq %r14 "); 
+    asm("popq %r13 "); 
+    asm("popq %r12 "); 
+    asm("popq %r11 "); 
+    asm("popq %r10 "); 
+    asm("popq %r9  "); 
+    asm("popq %r8  "); 
+    asm("popq %rdi "); 
+    asm("popq %rsi "); 
+    asm("popq %rbp "); 
+    asm("popq %rsp "); 
+    asm("popq %rdx "); 
+    asm("popq %rcx "); 
+    asm("popq %rbx "); 
+    
+    asm("movq %rax, %r15");
+    asm("popq %rax "); 
+    
+    asm volatile ("jmp *%r15"); 
+    asm("hlt");
 }
