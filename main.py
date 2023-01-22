@@ -2,7 +2,6 @@
 import os
 import sys
 import string
-import shutil
 import subprocess
 
 from lief import ELF
@@ -18,12 +17,29 @@ class TM:
         self._moded = self._bin.name+"_MODED"
         self._tm = None
 
-    def _build_loader(self, entry: int, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
+    def _get_load_segment_id_for_addr(self, addr: int):
+        cnt = 0
+        for s in self._bin.segments:
+            if s.virtual_address <= addr <= s.virtual_address + s.virtual_size:
+                return cnt, s
+            if s.type == ELF.SEGMENT_TYPES.LOAD:
+                cnt += 1
+        raise Exception("address not found in segments")
+
+    def check(self):
+        elf = self._bin.concrete
+        print(elf.header)
+        print("%X" % self._bin.entrypoint)
+        [print(s) for s in elf.segments]
+        print(self._get_load_segment_id_for_addr(self._bin.entrypoint))
+
+    def _build_loader(self, entry: int, entry_id: int, copy_id: int, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
+
         oldd = os.getcwd()
         os.chdir("tintirimintiri")
 
         p = subprocess.Popen(["gcc", "-pie", "-fPIC", "-fcf-protection=none", "-fno-stack-protector", "tintiri.c", "-c",
-                              f"-DENTRY={entry}"])
+                              f"-DENTRY={entry}", f"-DENTRY_ID={entry_id}", f"-DCOPY_ID={copy_id}"])
         p.wait()
 
         p = subprocess.Popen(["ld", "-pie",  "-nostdlib",  "tintiri.o",
@@ -38,20 +54,30 @@ class TM:
 
     def copySection(self, name: str = ".text"):
         orig = self._bin.get_section(name)
-        print(orig.information, orig.type)
+        orig_id, orig_segment = self._get_load_segment_id_for_addr(orig.virtual_address)
+        print("ORIG SEGMENT ", orig_id)
 
-        new_section = ELF.Section()
-        new_section.name = random_string()
-        new_section.type = orig.type
-        new_section.flags = orig.flags
-        new_section.entry_size = orig.entry_size
-        new_section.alignment = orig.alignment
-        new_section.link = len(self._bin.sections) + 1
-        new_section.content = orig.content
+        copy_segment = ELF.Segment()
+        copy_segment.type = ELF.SEGMENT_TYPES.LOAD
+        copy_segment.alignment = orig_segment.alignment
+        copy_segment.content = orig_segment.content
+        copy_segment.flags = ELF.SEGMENT_FLAGS.R
+        copy_segment.physical_size = orig_segment.physical_size
 
-        self._bin.add(new_section, loaded=True)
+        n_seg = self._bin.add(copy_segment)
+        n_seg_id, _ = self._get_load_segment_id_for_addr(n_seg.virtual_address+1)
 
         # orig.content = [0xf4 for i in range(orig.size)]
+
+        _, segment = self._get_load_segment_id_for_addr(self._bin.entrypoint)
+        print("ENTRY_OFFSET ", self._bin.entrypoint - segment.virtual_address)
+
+        D_entry = self._bin.entrypoint - segment.virtual_address
+        D_entry_id = _
+        D_copy_id = n_seg_id
+        print("Copy segment ", D_copy_id)
+
+        self._build_loader(D_entry, D_entry_id, D_copy_id)
 
         _tm_entry = self._tm.entrypoint
         _tm_segment = self._tm.get(ELF.SEGMENT_TYPES.LOAD)
@@ -60,16 +86,16 @@ class TM:
 
         new_tm_segment = self._bin.add(_tm_segment)
         new_tm_entry = new_tm_segment.virtual_address + _tm_offset
+        print("TM SEG ", self._get_load_segment_id_for_addr(new_tm_entry))
 
         self._bin.header.entrypoint = new_tm_entry
 
     def patch(self):
-        self._build_loader(0xb70)
         self.copySection()
         if os.path.exists(self._moded):
             os.unlink(self._moded)
         self.store()
-        os.chmod(self._moded, 755)
+        os.chmod(self._moded, 0o755)
 
     def store(self):
         self._bin.write(self._moded)
@@ -77,45 +103,5 @@ class TM:
 
 if __name__ == "__main__":
     o = TM(sys.argv[1])
+    # o.check()
     o.patch()
-
-# binary = ELF.parse(sys.argv[1])
-#
-# symtab_section             = ELF.Section()
-# symtab_section.name        = ""
-# symtab_section.type        = ELF.SECTION_TYPES.SYMTAB
-# symtab_section.entry_size  = 0x18
-# symtab_section.alignment   = 8
-# symtab_section.link        = len(binary.sections) + 1
-# symtab_section.content     = [0] * 100
-#
-# symstr_section            = ELF.Section()
-# symstr_section.name       = ""
-# symstr_section.type       = ELF.SECTION_TYPES.STRTAB
-# symstr_section.entry_size = 1
-# symstr_section.alignment  = 1
-# symstr_section.content    = [0] * 100
-#
-# symtab_section = binary.add(symtab_section, loaded=False)
-# symstr_section = binary.add(symstr_section, loaded=False)
-#
-# symbol         = ELF.Symbol()
-# symbol.name    = ""
-# symbol.type    = ELF.SYMBOL_TYPES.NOTYPE
-# symbol.value   = 0
-# symbol.binding = ELF.SYMBOL_BINDINGS.LOCAL
-# symbol.size    = 0
-# symbol.shndx   = 0
-# symbol         = binary.add_static_symbol(symbol)
-#
-# symbol         = ELF.Symbol()
-# symbol.name    = "main"
-# symbol.type    = ELF.SYMBOL_TYPES.FUNC
-# symbol.value   = 0x402A00
-# symbol.binding = ELF.SYMBOL_BINDINGS.LOCAL
-# symbol.shndx   = 14
-# symbol         = binary.add_static_symbol(symbol)
-#
-# print(symbol)
-#
-# binary.write(sys.argv[2])

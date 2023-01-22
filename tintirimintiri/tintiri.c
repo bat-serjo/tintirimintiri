@@ -12,28 +12,19 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#include "errno.h"
+
 #include "tintiri.h"
 
 
 void encrypt(){}
 void decrypt(){}
 
-const size_t PAGE_SIZE = 4096;
-size_t PAGE_MASK = ~(PAGE_SIZE - 1);
-#define PAGE_ALIGN(addr) ((size_t)(addr) & PAGE_MASK)
+size_t PAGE_SIZE = 0;
 
-//struct chunk {
-//    uint64_t offset;
-//    uint64_t size;
-//};
-//
-//
-//struct _settings {
-//    char name[4096];
-//    struct chunk chunks[8];
-//};
-//
-//__attribute__((visibility("default"))) struct _settings setup ;
+uint64_t fail_address;
+uint64_t copy_address;
+
 
 
 typedef struct vm_chunk {
@@ -107,6 +98,10 @@ size_t itostr(char *dest, int a, int base) {
   return size_used;
 }
 
+void* page_align(void* addr) {
+    size_t PAGE_MASK = ~(PAGE_SIZE - 1);
+    return (void*)((size_t)(addr) & PAGE_MASK);
+}
 
 pmaps_t read_maps(uint64_t pid) {
     char line[1024];
@@ -180,7 +175,14 @@ void _handle_SEGV(int signum, siginfo_t *info ,void *context)
 //    }
 //    printf("REG_RIP: %llx\n", c->uc_mcontext.gregs[REG_RIP]);
     uint8_t *p = (uint8_t*)c->uc_mcontext.gregs[REG_RIP];
-    mprotect((void*)PAGE_ALIGN(p), PAGE_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC);
+    void* pp = page_align(p);
+    uint64_t off = (uint64_t)pp - fail_address;
+    
+    void* cp = page_align((void*)((uint64_t)copy_address+off));
+    
+    mprotect(pp, PAGE_SIZE, PROT_READ|PROT_EXEC);
+//    memcpy(pp, cp, PAGE_SIZE);
+
 //    *p = 0x90;
 //    printf("\n");
 }
@@ -188,10 +190,6 @@ void _handle_SEGV(int signum, siginfo_t *info ,void *context)
 void _handle_ILL(int signum, siginfo_t *info ,void *context)
 {
     struct my_ucontext_t* c = (struct my_ucontext_t* )context;
-//    for (int  _=0; _<NGREG; _++) {
-//        printf("REG%2d: %llx\n", _, c->uc_mcontext.gregs[_]);
-//    }
-//    printf("\n");
 }
 
 void _handler(int signum, siginfo_t *info ,void *context)
@@ -221,36 +219,58 @@ int init_signals (void)
     sigaction(SIGSEGV, &new_action, &old_segv);
 }
 
+uint32_t get_page_size() {
+    void* new_addr = mmap(NULL, 1, PROT_READ, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+    
+    pmaps_t after_pms = read_maps(getpid());
+    for (uint32_t i=0; i < after_pms.count; i++) {
+        if (new_addr == after_pms.chunks[i].start_va) {
+            return after_pms.chunks[i].end_va - after_pms.chunks[i].start_va;
+        }
+    }
+    return 0;
+}
+
 #ifndef ENTRY
 #define ENTRY 0
 #endif
 
+#ifndef ENTRY_ID
+#define ENTRY_ID 0
+#endif
+
+#ifndef COPY_ID
+#define COPY_ID 0
+#endif
+
+
+
 uint64_t logic()  {
-//int main() {
     pmaps_t pms = read_maps(getpid());
+
+    uint64_t jmp_addr = 0;
     
-//    for (int i=0; i<pms.count; i++) {
-//        printf("%p %p %d %s\n", pms.chunks[i].start_va, pms.chunks[i].end_va, pms.chunks[i].mode, pms.chunks[i].file_path);
-//    }
+    for (uint32_t i=0; i < pms.count; i++) {
+        if (i == ENTRY_ID) {
+            fail_address = (uint64_t)pms.chunks[i].start_va;
+            jmp_addr = (uint64_t)pms.chunks[i].start_va + ENTRY;
+            mprotect(pms.chunks[i].start_va, pms.chunks[i].end_va-pms.chunks[i].start_va, PROT_NONE);
+        }
+        if (i == COPY_ID) {
+            copy_address = (uint64_t)pms.chunks[i].start_va;
+        }
+    }
+
+    PAGE_SIZE = get_page_size();
     
     init_signals();
     
-    void* va = NULL;
-    for (uint32_t i=0; i < pms.count; i++) {
-        if (pms.chunks[i].mode & PROT_EXEC) {
-            va = pms.chunks[i].start_va;
-            break;
-        }
-    }
-    
-    uint64_t a = (uint64_t)va + ENTRY;
-    return a;
-//    ((void(*)())a)();
-//    
-//    asm(".byte 0xf4");
-//    exit(0);
+    return jmp_addr;
 }
 
+//int main() {
+//    logic();
+//}
 
 __attribute__ ( ( naked ) ) void _start()  {
     asm("pushq %rax "); 
