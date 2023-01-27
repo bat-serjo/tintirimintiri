@@ -20,9 +20,9 @@ class TM:
     def _get_load_segment_id_for_addr(self, addr: int):
         cnt = 0
         for s in self._bin.segments:
-            if s.virtual_address <= addr <= s.virtual_address + s.virtual_size:
-                return cnt, s
-            if s.type == ELF.SEGMENT_TYPES.LOAD:
+            if s.virtual_address < addr < s.virtual_address + s.virtual_size:
+                return s.file_offset, s
+            if s.type == ELF.SEGMENT_TYPES.LOAD or s.type == ELF.SEGMENT_TYPES.DYNAMIC:
                 cnt += 1
         raise Exception("address not found in segments")
 
@@ -33,20 +33,21 @@ class TM:
         [print(s) for s in elf.segments]
         print(self._get_load_segment_id_for_addr(self._bin.entrypoint))
 
-    def _build_loader(self, entry: int, entry_id: int, copy_id: int, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
-
+    def _build_loader(self, entry: int, entry_id: int, copy_id: int, dietpath: str ="/home/serj/_o/netstock/dietlibc"):
+f
         oldd = os.getcwd()
         os.chdir("tintirimintiri")
 
-        p = subprocess.Popen(["gcc", "-pie", "-fPIC", "-fcf-protection=none", "-fno-stack-protector", "tintiri.c", "-c",
+        p = subprocess.Popen(["diet", "gcc", "-pie", "-fPIC", "-fcf-protection=none", "-fno-stack-protector", "tintiri.c", "-c",
                               f"-DENTRY={entry}", f"-DENTRY_ID={entry_id}", f"-DCOPY_ID={copy_id}"])
         p.wait()
 
-        p = subprocess.Popen(["ld", "-pie",  "-nostdlib",  "tintiri.o",
+        p = subprocess.Popen(["diet", "ld", "-pie",  "-nostdlib",  "tintiri.o",
                               f"-L{dietpath}bin-x86_64",
                               f"{dietpath}/bin-x86_64/dietlibc.a",
                               "-T", "my_link.ld",  "-o", "a.out"])
         p.wait()
+
         out = os.path.abspath("a.out")
         os.chdir(oldd)
 
@@ -67,17 +68,18 @@ class TM:
         n_seg = self._bin.add(copy_segment)
         n_seg_id, _ = self._get_load_segment_id_for_addr(n_seg.virtual_address+1)
 
-        # orig.content = [0xf4 for i in range(orig.size)]
+        orig.content = [0xf4 for i in range(orig.size)]
 
         _, segment = self._get_load_segment_id_for_addr(self._bin.entrypoint)
-        print("ENTRY_OFFSET ", self._bin.entrypoint - segment.virtual_address)
 
-        D_entry = self._bin.entrypoint - segment.virtual_address
-        D_entry_id = _
-        D_copy_id = n_seg_id
-        print("Copy segment ", D_copy_id)
+        d_entry = self._bin.entrypoint - segment.virtual_address
+        d_entry_id = _
+        d_copy_id = n_seg_id
+        print("ENTRY_OFFSET ", d_entry)
+        print("ORIG_ID ", hex(d_entry_id))
+        print("COPY_ID ", hex(d_copy_id))
 
-        self._build_loader(D_entry, D_entry_id, D_copy_id)
+        self._build_loader(d_entry, d_entry_id, d_copy_id)
 
         _tm_entry = self._tm.entrypoint
         _tm_segment = self._tm.get(ELF.SEGMENT_TYPES.LOAD)
@@ -87,6 +89,9 @@ class TM:
         new_tm_segment = self._bin.add(_tm_segment)
         new_tm_entry = new_tm_segment.virtual_address + _tm_offset
         print("TM SEG ", self._get_load_segment_id_for_addr(new_tm_entry))
+
+        n_seg_id, _ = self._get_load_segment_id_for_addr(n_seg.virtual_address+1)
+        print("#### NEW COPY ID ####", n_seg_id)
 
         self._bin.header.entrypoint = new_tm_entry
 

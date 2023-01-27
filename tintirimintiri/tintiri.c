@@ -2,7 +2,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdint.h>
-#include <signal.h>
 
 #include <sys/mman.h>
 #include <limits.h>
@@ -11,10 +10,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-
 #include "errno.h"
 
-#include "tintiri.h"
+
+#include <signal.h>
+//#include <linux/signal.h>
+
+//#include "tintiri.h"
 
 
 void encrypt(){}
@@ -23,7 +25,9 @@ void decrypt(){}
 size_t PAGE_SIZE = 0;
 
 uint64_t fail_address;
+uint64_t fail_size;
 uint64_t copy_address;
+uint64_t copy_size;
 
 
 
@@ -169,54 +173,27 @@ pmaps_t read_maps(uint64_t pid) {
 
 void _handle_SEGV(int signum, siginfo_t *info ,void *context)
 {
-    struct my_ucontext_t* c = (struct my_ucontext_t* )context;
-//    for (int  _=0; _<NGREG; _++) {
-//        printf("REG%2d: %llx\n", _, c->uc_mcontext.gregs[_]);
-//    }
-//    printf("REG_RIP: %llx\n", c->uc_mcontext.gregs[REG_RIP]);
-    uint8_t *p = (uint8_t*)c->uc_mcontext.gregs[REG_RIP];
+    void *p = info->si_addr;
     void* pp = page_align(p);
-    uint64_t off = (uint64_t)pp - fail_address;
-    
+
+    uint64_t off = (uint64_t)p - fail_address;    
     void* cp = page_align((void*)((uint64_t)copy_address+off));
     
-    mprotect(pp, PAGE_SIZE, PROT_READ|PROT_EXEC);
-//    memcpy(pp, cp, PAGE_SIZE);
-
-//    *p = 0x90;
-//    printf("\n");
+    mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC);
+    memcpy((void*)pp, (void*)cp, PAGE_SIZE);
+    return;
 }
 
-void _handle_ILL(int signum, siginfo_t *info ,void *context)
-{
-    struct my_ucontext_t* c = (struct my_ucontext_t* )context;
-}
-
-void _handler(int signum, siginfo_t *info ,void *context)
-{
-    if (signum == SIGILL) {
-        return _handle_ILL(signum, info, context);
-    }
-    
-    if (signum == SIGSEGV) {
-        return _handle_SEGV(signum, info, context);
-    }
-}
-
-struct sigaction old_ill, old_segv;
 struct sigaction new_action;
 
 int init_signals (void)
 {
-    struct sigaction new_action = {
-        .sa_sigaction = _handler,
-        .sa_flags = SA_RESTART,
-    };
-    
-    sigfillset (&new_action.sa_mask);
+    memset(&new_action, 0, sizeof(new_action));
+    new_action.sa_sigaction = _handle_SEGV;
+    new_action.sa_flags = SA_SIGINFO | SA_RESTART;
+//    sigfillset (&new_action.sa_mask);
 
-    sigaction(SIGILL, &new_action, &old_ill);
-    sigaction(SIGSEGV, &new_action, &old_segv);
+    sigaction(SIGSEGV, &new_action, NULL);
 }
 
 uint32_t get_page_size() {
@@ -249,19 +226,29 @@ uint64_t logic()  {
     pmaps_t pms = read_maps(getpid());
 
     uint64_t jmp_addr = 0;
+
+    PAGE_SIZE = get_page_size();
+    
+    fail_address = 0;
+    copy_address = 0;
     
     for (uint32_t i=0; i < pms.count; i++) {
-        if (i == ENTRY_ID) {
+        if (pms.chunks[i].offset == ENTRY_ID) {
             fail_address = (uint64_t)pms.chunks[i].start_va;
+            fail_size = pms.chunks[i].end_va-pms.chunks[i].start_va;
             jmp_addr = (uint64_t)pms.chunks[i].start_va + ENTRY;
-            mprotect(pms.chunks[i].start_va, pms.chunks[i].end_va-pms.chunks[i].start_va, PROT_NONE);
+            mprotect(pms.chunks[i].start_va, fail_size, PROT_NONE);
         }
-        if (i == COPY_ID) {
+        if (pms.chunks[i].offset == COPY_ID) {
             copy_address = (uint64_t)pms.chunks[i].start_va;
+            copy_size = (uint64_t)pms.chunks[i].end_va - (uint64_t)pms.chunks[i].start_va;
+        }
+        
+        if (fail_address != 0 && copy_address != 0) {
+            break;
         }
     }
 
-    PAGE_SIZE = get_page_size();
     
     init_signals();
     
@@ -270,6 +257,7 @@ uint64_t logic()  {
 
 //int main() {
 //    logic();
+//    asm("movq %rax, 42");
 //}
 
 __attribute__ ( ( naked ) ) void _start()  {
