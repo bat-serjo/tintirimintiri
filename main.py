@@ -34,7 +34,7 @@ class TM:
         print(self._get_load_segment_id_for_addr(self._bin.entrypoint))
 
     def _build_loader(self, entry: int, entry_id: int, copy_id: int, dietpath: str ="/home/serj/_o/netstock/dietlibc"):
-f
+
         oldd = os.getcwd()
         os.chdir("tintirimintiri")
 
@@ -53,6 +53,12 @@ f
 
         self._tm = ELF.parse(out)
 
+    def encrypt(self, blob: bytes):
+        ret = bytearray(blob)
+        for i, b in enumerate(blob):
+            ret[i] = (b ^ 0xA3) & 0xff
+        return ret
+
     def copySection(self, name: str = ".text"):
         orig = self._bin.get_section(name)
         orig_id, orig_segment = self._get_load_segment_id_for_addr(orig.virtual_address)
@@ -61,7 +67,7 @@ f
         copy_segment = ELF.Segment()
         copy_segment.type = ELF.SEGMENT_TYPES.LOAD
         copy_segment.alignment = orig_segment.alignment
-        copy_segment.content = orig_segment.content
+        copy_segment.content = self.encrypt(orig_segment.content)
         copy_segment.flags = ELF.SEGMENT_FLAGS.R
         copy_segment.physical_size = orig_segment.physical_size
 

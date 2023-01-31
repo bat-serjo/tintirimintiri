@@ -20,7 +20,12 @@
 
 
 void encrypt(){}
-void decrypt(){}
+void decrypt(void* p, size_t len) {
+    uint8_t *b = (uint8_t*)p;
+    for(int i=0; i<len; i++) {
+        b[i] ^= 0xA3;
+    }
+}
 
 size_t PAGE_SIZE = 0;
 
@@ -179,8 +184,10 @@ void _handle_SEGV(int signum, siginfo_t *info ,void *context)
     uint64_t off = (uint64_t)p - fail_address;    
     void* cp = page_align((void*)((uint64_t)copy_address+off));
     
-    mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_WRITE|PROT_EXEC);
+    mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_WRITE);
     memcpy((void*)pp, (void*)cp, PAGE_SIZE);
+    decrypt(pp, PAGE_SIZE);
+    mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_EXEC);
     return;
 }
 
