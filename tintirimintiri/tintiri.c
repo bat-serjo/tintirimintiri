@@ -29,11 +29,21 @@ void decrypt(void* p, size_t len) {
 
 size_t PAGE_SIZE = 0;
 
-uint64_t fail_address;
-uint64_t fail_size;
-uint64_t copy_address;
-uint64_t copy_size;
+typedef struct zone {
+    size_t orig_id;
+    size_t copy_id;
+    size_t entry;
+    
+    size_t orig_va;
+    size_t orig_len;
+    size_t copy_va;
+} zone_t;
 
+#ifndef TEXT
+#define TEXT {0, 0, 0, 0, 0}
+#endif
+
+zone_t zones[] = {TEXT,};
 
 
 typedef struct vm_chunk {
@@ -80,8 +90,11 @@ size_t str_append(char* dst, char* src) {
 
 size_t itostr(char *dest, int a, int base) {
   char buffer[sizeof a * CHAR_BIT + 1 + 1]; 
-  static const char digits[36] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
+  char digits[36];
+  for (uint8_t c='0'; c <= 'Z'; c++) {
+      digits[c-'0'] = c;
+  }
+  
   if (base < 2 || base > 36) {
     return 0;
   }
@@ -181,14 +194,23 @@ void _handle_SEGV(int signum, siginfo_t *info ,void *context)
     void *p = info->si_addr;
     void* pp = page_align(p);
 
-    uint64_t off = (uint64_t)p - fail_address;    
-    void* cp = page_align((void*)((uint64_t)copy_address+off));
-    
-    mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_WRITE);
-    memcpy((void*)pp, (void*)cp, PAGE_SIZE);
-    decrypt(pp, PAGE_SIZE);
-    mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_EXEC);
-    return;
+    size_t pva = (size_t)p;
+    for (int _zi=0; _zi < (sizeof(zones)/sizeof(zones[0])); _zi++) {
+        zone_t* z = &zones[_zi];
+        
+        if (pva < z->orig_va || pva > (z->orig_va + z->orig_len)) {
+            continue;
+        }
+
+        uint64_t off = (uint64_t)p - z->orig_va; 
+        void* cp = page_align((void*)((uint64_t)z->copy_va+off));
+
+        mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_WRITE);
+        memcpy((void*)pp, (void*)cp, PAGE_SIZE);
+        decrypt(pp, PAGE_SIZE);
+        mprotect((void*)pp, PAGE_SIZE, PROT_READ|PROT_EXEC);
+        return;
+    }
 }
 
 struct sigaction new_action;
@@ -215,47 +237,35 @@ uint32_t get_page_size() {
     return 0;
 }
 
-#ifndef ENTRY
-#define ENTRY 0
-#endif
-
-#ifndef ENTRY_ID
-#define ENTRY_ID 0
-#endif
-
-#ifndef COPY_ID
-#define COPY_ID 0
-#endif
-
-
-
 uint64_t logic()  {
-    pmaps_t pms = read_maps(getpid());
-
+    size_t len = 0;
     uint64_t jmp_addr = 0;
-
+    
+    pmaps_t pms = read_maps(getpid());
     PAGE_SIZE = get_page_size();
     
-    fail_address = 0;
-    copy_address = 0;
-    
-    for (uint32_t i=0; i < pms.count; i++) {
-        if (pms.chunks[i].offset == ENTRY_ID) {
-            fail_address = (uint64_t)pms.chunks[i].start_va;
-            fail_size = pms.chunks[i].end_va-pms.chunks[i].start_va;
-            jmp_addr = (uint64_t)pms.chunks[i].start_va + ENTRY;
-            mprotect(pms.chunks[i].start_va, fail_size, PROT_NONE);
-        }
-        if (pms.chunks[i].offset == COPY_ID) {
-            copy_address = (uint64_t)pms.chunks[i].start_va;
-            copy_size = (uint64_t)pms.chunks[i].end_va - (uint64_t)pms.chunks[i].start_va;
-        }
+    for (int _zi=0; _zi < (sizeof(zones)/sizeof(zones[0])); _zi++) {
+        zone_t* z = &zones[_zi];
         
-        if (fail_address != 0 && copy_address != 0) {
-            break;
+        for (uint32_t i=0; i < pms.count; i++) {
+            if (pms.chunks[i].offset == z->orig_id) {
+                z->orig_va = (uint64_t)pms.chunks[i].start_va;
+                if (z->entry != 0) {
+                    jmp_addr = (uint64_t)pms.chunks[i].start_va + z->entry;
+                }
+                z->orig_len = pms.chunks[i].end_va-pms.chunks[i].start_va;
+                mprotect(pms.chunks[i].start_va, z->orig_len, PROT_NONE);
+            }
+            if (pms.chunks[i].offset == z->copy_id) {
+                z->copy_va = (uint64_t)pms.chunks[i].start_va;
+                len = (uint64_t)pms.chunks[i].end_va - (uint64_t)pms.chunks[i].start_va;
+            }
+
+            if (z->orig_va != 0 && z->copy_va != 0) {
+                break;
+            }
         }
     }
-
     
     init_signals();
     

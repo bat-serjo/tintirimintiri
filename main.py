@@ -33,13 +33,15 @@ class TM:
         [print(s) for s in elf.segments]
         print(self._get_load_segment_id_for_addr(self._bin.entrypoint))
 
-    def _build_loader(self, entry: int, entry_id: int, copy_id: int, dietpath: str ="/home/serj/_o/netstock/dietlibc"):
+    def _build_loader(self, entry: int, orig_id: int, copy_id: int, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
 
         oldd = os.getcwd()
         os.chdir("tintirimintiri")
 
+        d_text = '-DTEXT={%d, %d, %d, 0, 0, 0}' % (orig_id, copy_id, entry)
+
         p = subprocess.Popen(["diet", "gcc", "-pie", "-fPIC", "-fcf-protection=none", "-fno-stack-protector", "tintiri.c", "-c",
-                              f"-DENTRY={entry}", f"-DENTRY_ID={entry_id}", f"-DCOPY_ID={copy_id}"])
+                              d_text])
         p.wait()
 
         p = subprocess.Popen(["diet", "ld", "-pie",  "-nostdlib",  "tintiri.o",
