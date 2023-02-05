@@ -11,6 +11,19 @@ def random_string(length=8) -> str:
     return os.urandom(length).translate((f'{string.ascii_letters}{string.digits}-_' * 4).encode('ascii')).decode()
 
 
+class Zone:
+    def __init__(self, oid: int, cid: int, entry: int):
+        self.orig_id = oid
+        self.copy_id = cid
+        self.entry = entry
+
+    def to_c(self) -> str:
+        return '{ %d, %d, %d, 0, 0, 0}' % (self.orig_id, self.copy_id, self.entry)
+
+    def __str__(self) -> str:
+        return f"ENTRY {hex(self.entry)} ORIG_ID {hex(self.orig_id)} COPY_ID {hex(self.copy_id)}"
+
+
 class TM:
     def __init__(self, fname):
         self._bin = ELF.parse(fname)
@@ -33,15 +46,17 @@ class TM:
         [print(s) for s in elf.segments]
         print(self._get_load_segment_id_for_addr(self._bin.entrypoint))
 
-    def _build_loader(self, entry: int, orig_id: int, copy_id: int, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
+    def _build_loader(self, zone_text: Zone, zone_str: Zone, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
 
         oldd = os.getcwd()
         os.chdir("tintirimintiri")
 
-        d_text = '-DTEXT={%d, %d, %d, 0, 0, 0}' % (orig_id, copy_id, entry)
+        d_text = '-DTEXT=%s, %s' % (zone_text.to_c(), zone_str.to_c())
+        # d_text = '-DTEXT=%s' % zone_text.to_c()
+        print(d_text)
 
-        p = subprocess.Popen(["diet", "gcc", "-pie", "-fPIC", "-fcf-protection=none", "-fno-stack-protector", "tintiri.c", "-c",
-                              d_text])
+        p = subprocess.Popen(["diet", "gcc", "-pie", "-fPIC", "-fcf-protection=none", "-fno-stack-protector",
+                              "-c", d_text, "tintiri.c"])
         p.wait()
 
         p = subprocess.Popen(["diet", "ld", "-pie",  "-nostdlib",  "tintiri.o",
@@ -61,7 +76,13 @@ class TM:
             ret[i] = (b ^ 0xA3) & 0xff
         return ret
 
-    def copySection(self, name: str = ".text"):
+    def find_strings_zone(self):
+        for s in self._bin.segments:
+            for i in s.sections:
+                if i.name == '.rodata':
+                    return s, Zone(s.file_offset, 0, 0)
+
+    def copy_section(self, name: str = ".text"):
         orig = self._bin.get_section(name)
         orig_id, orig_segment = self._get_load_segment_id_for_addr(orig.virtual_address)
         print("ORIG SEGMENT ", orig_id)
@@ -81,13 +102,17 @@ class TM:
         _, segment = self._get_load_segment_id_for_addr(self._bin.entrypoint)
 
         d_entry = self._bin.entrypoint - segment.virtual_address
-        d_entry_id = _
+        d_orig_id = _
         d_copy_id = n_seg_id
-        print("ENTRY_OFFSET ", d_entry)
-        print("ORIG_ID ", hex(d_entry_id))
-        print("COPY_ID ", hex(d_copy_id))
 
-        self._build_loader(d_entry, d_entry_id, d_copy_id)
+        z_text = Zone(d_orig_id, d_copy_id, d_entry)
+        print(z_text)
+
+        str_seg, z_str = self.find_strings_zone()
+        str_seg.content = self.encrypt(str_seg.content)
+        print(z_str)
+
+        self._build_loader(z_text, z_str)
 
         _tm_entry = self._tm.entrypoint
         _tm_segment = self._tm.get(ELF.SEGMENT_TYPES.LOAD)
@@ -104,7 +129,7 @@ class TM:
         self._bin.header.entrypoint = new_tm_entry
 
     def patch(self):
-        self.copySection()
+        self.copy_section()
         if os.path.exists(self._moded):
             os.unlink(self._moded)
         self.store()

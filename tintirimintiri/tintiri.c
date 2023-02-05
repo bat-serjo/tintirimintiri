@@ -220,7 +220,8 @@ int init_signals (void)
     memset(&new_action, 0, sizeof(new_action));
     new_action.sa_sigaction = _handle_SEGV;
     new_action.sa_flags = SA_SIGINFO | SA_RESTART;
-//    sigfillset (&new_action.sa_mask);
+    sigfillset (&new_action.sa_mask);
+//    sigemptyset(&new_action.sa_mask);
 
     sigaction(SIGSEGV, &new_action, NULL);
 }
@@ -247,22 +248,38 @@ uint64_t logic()  {
     for (int _zi=0; _zi < (sizeof(zones)/sizeof(zones[0])); _zi++) {
         zone_t* z = &zones[_zi];
         
-        for (uint32_t i=0; i < pms.count; i++) {
-            if (pms.chunks[i].offset == z->orig_id) {
-                z->orig_va = (uint64_t)pms.chunks[i].start_va;
-                if (z->entry != 0) {
-                    jmp_addr = (uint64_t)pms.chunks[i].start_va + z->entry;
+        if (z->copy_id != 0 && z->entry != 0) { 
+            for (uint32_t i=0; i < pms.count; i++) {
+                if (pms.chunks[i].offset == z->orig_id) {
+                    z->orig_va = (uint64_t)pms.chunks[i].start_va;
+                    if (z->entry != 0) {
+                        jmp_addr = (uint64_t)pms.chunks[i].start_va + z->entry;
+                    }
+                    z->orig_len = pms.chunks[i].end_va-pms.chunks[i].start_va;
+                    mprotect(pms.chunks[i].start_va, z->orig_len, PROT_NONE);
                 }
-                z->orig_len = pms.chunks[i].end_va-pms.chunks[i].start_va;
-                mprotect(pms.chunks[i].start_va, z->orig_len, PROT_NONE);
-            }
-            if (pms.chunks[i].offset == z->copy_id) {
-                z->copy_va = (uint64_t)pms.chunks[i].start_va;
-                len = (uint64_t)pms.chunks[i].end_va - (uint64_t)pms.chunks[i].start_va;
-            }
+                if (pms.chunks[i].offset == z->copy_id) {
+                    z->copy_va = (uint64_t)pms.chunks[i].start_va;
+                    len = (uint64_t)pms.chunks[i].end_va - (uint64_t)pms.chunks[i].start_va;
+                }
 
-            if (z->orig_va != 0 && z->copy_va != 0) {
-                break;
+                if (z->orig_va != 0 && z->copy_va != 0) {
+                    break;
+                }
+            }
+        } else {        
+            for (uint32_t i=0; i < pms.count; i++) {
+                if (pms.chunks[i].offset == z->orig_id) {
+                    z->orig_va = (uint64_t)pms.chunks[i].start_va;
+                    if (z->entry != 0) {
+                        jmp_addr = (uint64_t)pms.chunks[i].start_va + z->entry;
+                    }
+                    z->orig_len = pms.chunks[i].end_va-pms.chunks[i].start_va;
+
+                    mprotect(pms.chunks[i].start_va, z->orig_len, PROT_READ|PROT_WRITE);
+                    decrypt((void*)z->orig_va, z->orig_len);
+                    break;
+                }
             }
         }
     }
