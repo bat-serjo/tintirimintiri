@@ -7,6 +7,9 @@ import subprocess
 from lief import ELF
 
 
+DIET_LIBC_PATH = "/home/serj/_o/netstock/dietlibc"
+
+
 def random_string(length=8) -> str:
     return os.urandom(length).translate((f'{string.ascii_letters}{string.digits}-_' * 4).encode('ascii')).decode()
 
@@ -46,7 +49,7 @@ class TM:
         [print(s) for s in elf.segments]
         print(self._get_load_segment_id_for_addr(self._bin.entrypoint))
 
-    def _build_loader(self, zone_text: Zone, zone_str: Zone, dietpath: str = "/home/serj/_o/netstock/dietlibc"):
+    def _build_loader(self, zone_text: Zone, zone_str: Zone, dietpath: str = DIET_LIBC_PATH):
 
         oldd = os.getcwd()
         os.chdir("tintirimintiri")
