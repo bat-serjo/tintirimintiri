@@ -1,4 +1,4 @@
-- Download ditelibc
+- Download dietlibc [https://www.fefe.de/dietlibc/](https://www.fefe.de/dietlibc/)
 - Build dietlibc without stack protection
     - you can do this by modifying the Makefile like this  
     EXTRACFLAGS=-ffunction-sections -fdata-sections -fno-stack-protector
